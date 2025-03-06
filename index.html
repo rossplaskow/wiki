@@ -86,15 +86,14 @@
     // Get safe area top inset (fallback to 20px if not available)
     const safeAreaTop = parseFloat(getComputedStyle(document.documentElement)
                             .getPropertyValue('env(safe-area-inset-top)')) || 20;
-
+    
     const phoneContainer = document.getElementById('phone-container');
     const pagesContainer = document.getElementById('pages');
     const phoneHeight = phoneContainer.clientHeight;
     let activeIndex = 0;
     let startY = 0;
-    let currentTranslate = 0;
     let isDragging = false;
-
+    
     // Fetch a random Wikipedia summary.
     async function fetchRandomArticle() {
       try {
@@ -106,14 +105,14 @@
         return { title: 'Error', extract: 'Could not load article.' };
       }
     }
-
+    
     // Create a page element with a random article.
     async function createPage() {
       const article = await fetchRandomArticle();
       const page = document.createElement('div');
       page.className = 'page';
       
-      // Save the article URL (if available) on the page element.
+      // Store the article URL (if available) on the page element.
       if (article.content_urls && article.content_urls.desktop && article.content_urls.desktop.page) {
         page.dataset.pageUrl = article.content_urls.desktop.page;
       }
@@ -128,7 +127,7 @@
       
       page.appendChild(titleEl);
       page.appendChild(extractEl);
-
+      
       // For desktop: double-click to open the Wikipedia page.
       page.addEventListener('dblclick', () => {
         if (page.dataset.pageUrl) {
@@ -149,54 +148,59 @@
         }
         lastTap = currentTime;
       });
-
+      
       return page;
     }
-
+    
     // Append a new page to the pages container.
     async function appendPage() {
       const page = await createPage();
       pagesContainer.appendChild(page);
     }
-
+    
     // Preload a given number of pages.
     async function preloadPages(count) {
       for (let i = 0; i < count; i++) {
         await appendPage();
       }
     }
-
+    
     // Update the transform on the pages container.
     // Subtract safeAreaTop so the content is raised by the URL bar height.
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
       pagesContainer.style.transform = `translateY(${translateY - safeAreaTop}px)`;
     }
-
-    // Touch event handling for swipe navigation.
+    
+    // --- Touch Events ---
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
       startY = e.touches[0].clientY;
       setTranslateY(-activeIndex * phoneHeight, false);
     });
-
+    
     phoneContainer.addEventListener('touchmove', (e) => {
       if (!isDragging) return;
       const currentY = e.touches[0].clientY;
       const deltaY = currentY - startY;
-      currentTranslate = -activeIndex * phoneHeight + deltaY;
-      setTranslateY(currentTranslate, false);
+      setTranslateY(-activeIndex * phoneHeight + deltaY, false);
     });
-
-    phoneContainer.addEventListener('touchend', () => {
+    
+    phoneContainer.addEventListener('touchend', (e) => {
       if (!isDragging) return;
       isDragging = false;
-      const delta = currentTranslate + activeIndex * phoneHeight;
+      const endY = e.changedTouches[0].clientY;
+      const deltaY = endY - startY;
+      // If the movement is negligible, do nothing.
+      if (Math.abs(deltaY) < 5) {
+        setTranslateY(-activeIndex * phoneHeight, true);
+        return;
+      }
       const threshold = phoneHeight * 0.15; // 15% threshold
-      if (delta < -threshold && activeIndex < pagesContainer.children.length - 1) {
+      if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
-      } else if (delta > threshold && activeIndex > 0) {
+      } else if (deltaY > threshold && activeIndex > 0) {
         activeIndex--;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
@@ -204,28 +208,34 @@
         appendPage();
       }
     });
-
-    // For desktop testing: similar mouse event handling.
+    
+    // --- Mouse Events (for desktop testing) ---
     let mouseDown = false;
+    let mouseStartY = 0;
     phoneContainer.addEventListener('mousedown', (e) => {
       mouseDown = true;
-      startY = e.clientY;
+      mouseStartY = e.clientY;
       setTranslateY(-activeIndex * phoneHeight, false);
     });
+    
     phoneContainer.addEventListener('mousemove', (e) => {
       if (!mouseDown) return;
-      const deltaY = e.clientY - startY;
-      currentTranslate = -activeIndex * phoneHeight + deltaY;
-      setTranslateY(currentTranslate, false);
+      const deltaY = e.clientY - mouseStartY;
+      setTranslateY(-activeIndex * phoneHeight + deltaY, false);
     });
-    phoneContainer.addEventListener('mouseup', () => {
+    
+    phoneContainer.addEventListener('mouseup', (e) => {
       if (!mouseDown) return;
       mouseDown = false;
-      const delta = currentTranslate + activeIndex * phoneHeight;
+      const deltaY = e.clientY - mouseStartY;
+      if (Math.abs(deltaY) < 5) {
+        setTranslateY(-activeIndex * phoneHeight, true);
+        return;
+      }
       const threshold = phoneHeight * 0.15;
-      if (delta < -threshold && activeIndex < pagesContainer.children.length - 1) {
+      if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
-      } else if (delta > threshold && activeIndex > 0) {
+      } else if (deltaY > threshold && activeIndex > 0) {
         activeIndex--;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
@@ -233,13 +243,14 @@
         appendPage();
       }
     });
+    
     phoneContainer.addEventListener('mouseleave', () => {
       if (mouseDown) {
         mouseDown = false;
         setTranslateY(-activeIndex * phoneHeight, true);
       }
     });
-
+    
     // Initial load: preload a couple of pages.
     preloadPages(2);
   </script>
