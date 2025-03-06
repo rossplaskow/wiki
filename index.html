@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Random Wikipedia Articles</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    /* Reset */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    /* Full-screen phone layout */
+    body {
+      background-color: #000;
+      font-family: Arial, sans-serif;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    /* Simulated phone screen */
+    #phone-container {
+      position: relative;
+      width: 375px;
+      height: 667px;
+      background: #000;
+      border: 2px solid #555;
+      border-radius: 40px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(255,255,255,0.1);
+      touch-action: none; /* disable native scrolling */
+    }
+    /* Container for pages */
+    #pages {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.3s ease;
+      will-change: transform;
+    }
+    /* Each full-screen page */
+    .page {
+      width: 100%;
+      height: 100%;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+    /* Title and extract styling */
+    .title {
+      font-size: 2em;
+      font-weight: bold;
+      margin-bottom: 15px;
+    }
+    .extract {
+      font-size: 1.2em;
+      line-height: 1.5;
+      /* Multi-line clamping (with ellipsis) */
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      -webkit-line-clamp: 16;
+    }
+  </style>
+</head>
+<body>
+  <div id="phone-container">
+    <div id="pages">
+      <!-- Random article pages will be appended here -->
+    </div>
+  </div>
+
+  <script>
+    const phoneContainer = document.getElementById('phone-container');
+    const pagesContainer = document.getElementById('pages');
+    const phoneHeight = phoneContainer.clientHeight;
+    let activeIndex = 0;
+    let startY = 0;
+    let currentTranslate = 0;
+    let isDragging = false;
+    
+    // Fetch a random Wikipedia summary.
+    async function fetchRandomArticle() {
+      try {
+        const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary');
+        if (!response.ok) throw new Error('Network response was not ok');
+        return await response.json();
+      } catch (error) {
+        console.error('Error fetching article:', error);
+        return { title: 'Error', extract: 'Could not load article.' };
+      }
+    }
+    
+    // Create a page element with a random article.
+    async function createPage() {
+      const article = await fetchRandomArticle();
+      const page = document.createElement('div');
+      page.className = 'page';
+      
+      const titleEl = document.createElement('div');
+      titleEl.className = 'title';
+      titleEl.textContent = article.title || 'No Title';
+      
+      const extractEl = document.createElement('div');
+      extractEl.className = 'extract';
+      extractEl.textContent = article.extract || 'No extract available.';
+      
+      page.appendChild(titleEl);
+      page.appendChild(extractEl);
+      return page;
+    }
+    
+    // Append a new page to the pages container.
+    async function appendPage() {
+      const page = await createPage();
+      pagesContainer.appendChild(page);
+    }
+    
+    // Preload a given number of pages.
+    async function preloadPages(count) {
+      for (let i = 0; i < count; i++) {
+        await appendPage();
+      }
+    }
+    
+    // Update the transform on the pages container.
+    function setTranslateY(translateY, withTransition = false) {
+      pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
+      pagesContainer.style.transform = `translateY(${translateY}px)`;
+    }
+    
+    // Touch event handling for swipe navigation.
+    phoneContainer.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      isDragging = true;
+      startY = e.touches[0].clientY;
+      setTranslateY(-activeIndex * phoneHeight, false);
+    });
+    
+    phoneContainer.addEventListener('touchmove', (e) => {
+      if (!isDragging) return;
+      const currentY = e.touches[0].clientY;
+      const deltaY = currentY - startY;
+      currentTranslate = -activeIndex * phoneHeight + deltaY;
+      setTranslateY(currentTranslate, false);
+    });
+    
+    phoneContainer.addEventListener('touchend', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      const delta = currentTranslate + activeIndex * phoneHeight;
+      const threshold = phoneHeight * 0.3;
+      if (delta < -threshold && activeIndex < pagesContainer.children.length - 1) {
+        activeIndex++;
+      } else if (delta > threshold && activeIndex > 0) {
+        activeIndex--;
+      }
+      setTranslateY(-activeIndex * phoneHeight, true);
+      // Preload more pages if needed.
+      if (activeIndex >= pagesContainer.children.length - 2) {
+        appendPage();
+      }
+    });
+    
+    // For desktop testing: add similar mouse event handling.
+    let mouseDown = false;
+    phoneContainer.addEventListener('mousedown', (e) => {
+      mouseDown = true;
+      startY = e.clientY;
+      setTranslateY(-activeIndex * phoneHeight, false);
+    });
+    phoneContainer.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      const deltaY = e.clientY - startY;
+      currentTranslate = -activeIndex * phoneHeight + deltaY;
+      setTranslateY(currentTranslate, false);
+    });
+    phoneContainer.addEventListener('mouseup', () => {
+      if (!mouseDown) return;
+      mouseDown = false;
+      const delta = currentTranslate + activeIndex * phoneHeight;
+      const threshold = phoneHeight * 0.3;
+      if (delta < -threshold && activeIndex < pagesContainer.children.length - 1) {
+        activeIndex++;
+      } else if (delta > threshold && activeIndex > 0) {
+        activeIndex--;
+      }
+      setTranslateY(-activeIndex * phoneHeight, true);
+      if (activeIndex >= pagesContainer.children.length - 2) {
+        appendPage();
+      }
+    });
+    phoneContainer.addEventListener('mouseleave', () => {
+      if (mouseDown) {
+        mouseDown = false;
+        setTranslateY(-activeIndex * phoneHeight, true);
+      }
+    });
+    
+    // Initial load: preload a couple of pages.
+    preloadPages(2);
+  </script>
+</body>
+</html>
