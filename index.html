@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Random Wikipedia Articles</title>
-  <!-- Include viewport-fit=cover to allow safe area adjustments -->
+  <title>Random Wikipedia Articles with API Key & GPT</title>
+  <!-- Use viewport-fit=cover to allow safe area adjustments -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <style>
     /* Reset */
@@ -22,12 +22,47 @@
       align-items: center;
       height: 100vh;
       overflow: hidden;
+      position: relative;
+    }
+    /* API Key overlay */
+    #apikey-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    #apikey-overlay input {
+      padding: 10px;
+      width: 80%;
+      max-width: 300px;
+      font-size: 1em;
+      border-radius: 5px;
+      border: none;
+      margin-bottom: 20px;
+      autocapitalize: none;
+      autocomplete: off;
+      spellcheck: false;
+      inputmode: text;
+    }
+    #apikey-overlay button {
+      padding: 10px 20px;
+      font-size: 1em;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
     }
     /* Simulated phone screen */
     #phone-container {
       position: relative;
       width: 375px;
-      /* Adjust height to account for the safe area at the bottom */
+      /* Adjust height to account for safe area at the bottom */
       height: calc(100vh - env(safe-area-inset-bottom) - 20px);
       background: #000;
       border: 0;
@@ -76,6 +111,14 @@
   </style>
 </head>
 <body>
+  <!-- API Key Overlay -->
+  <div id="apikey-overlay">
+    <h2>Please enter your OpenAI API Key</h2>
+    <input type="text" id="apikey-input" placeholder="sk-..." autocapitalize="none" autocomplete="off" spellcheck="false" inputmode="text">
+    <button id="apikey-ok">OK</button>
+  </div>
+
+  <!-- Phone Container -->
   <div id="phone-container">
     <div id="pages">
       <!-- Random article pages will be appended here -->
@@ -83,9 +126,32 @@
   </div>
 
   <script>
+    // Global variable to hold the user's API key.
+    let openAiApiKey = localStorage.getItem('openAiApiKey') || "";
+    
+    const apikeyOverlay = document.getElementById('apikey-overlay');
+    const apikeyInput = document.getElementById('apikey-input');
+    const apikeyOk = document.getElementById('apikey-ok');
+    
+    // If an API key is already stored, hide the overlay.
+    if (openAiApiKey) {
+      apikeyOverlay.style.display = 'none';
+      preloadPages(2);
+    }
+    
+    // When the user clicks OK, store the key and hide the overlay.
+    apikeyOk.addEventListener('click', () => {
+      openAiApiKey = apikeyInput.value.trim();
+      if (openAiApiKey) {
+        localStorage.setItem('openAiApiKey', openAiApiKey);
+        apikeyOverlay.style.display = 'none';
+        preloadPages(2);
+      }
+    });
+    
     // Get safe area top inset (fallback to 20px if not available)
     const safeAreaTop = parseFloat(getComputedStyle(document.documentElement)
-                            .getPropertyValue('env(safe-area-inset-top)')) || 20;
+                              .getPropertyValue('env(safe-area-inset-top)')) || 20;
     
     const phoneContainer = document.getElementById('phone-container');
     const pagesContainer = document.getElementById('pages');
@@ -94,7 +160,40 @@
     let startY = 0;
     let isDragging = false;
     
-    // Fetch a random Wikipedia summary.
+    // Variables for dwell timer and related search term.
+    let dwellTimer = null;
+    let nextSearchTerm = null;
+    
+    // --- GPT Call Function ---
+    async function fetchRelatedSearchTerm(text) {
+      if (!openAiApiKey) return null;
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + openAiApiKey
+          },
+          body: JSON.stringify({
+            model: "chatgpt-4o-latest",
+            messages: [
+              { role: "system", content: "You are an expert researcher. Provide a single, concise related subject based on the provided Wikipedia article text." },
+              { role: "user", content: "Article text: " + text }
+            ],
+            max_tokens: 10,
+            temperature: 0.7
+          })
+        });
+        if (!response.ok) throw new Error("OpenAI API request failed");
+        const data = await response.json();
+        return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
+      } catch (error) {
+        console.error("Error fetching related term:", error);
+        return null;
+      }
+    }
+    
+    // --- Article Fetching Functions ---
     async function fetchRandomArticle() {
       try {
         const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary');
@@ -106,13 +205,39 @@
       }
     }
     
-    // Create a page element with a random article.
+    async function fetchArticleByQuery(query) {
+      try {
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=50&format=json&origin=*`;
+        const response = await fetch(searchUrl);
+        if (!response.ok) throw new Error("Search request failed");
+        const data = await response.json();
+        const results = data.query.search;
+        if (results && results.length > 0) {
+          const randomResult = results[Math.floor(Math.random() * results.length)];
+          const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(randomResult.title)}`;
+          const summaryResponse = await fetch(summaryUrl);
+          if (!summaryResponse.ok) throw new Error("Summary request failed");
+          return await summaryResponse.json();
+        } else {
+          return await fetchRandomArticle();
+        }
+      } catch (error) {
+        console.error("Error fetching article by query:", error);
+        return await fetchRandomArticle();
+      }
+    }
+    
     async function createPage() {
-      const article = await fetchRandomArticle();
+      let article;
+      if (nextSearchTerm) {
+        article = await fetchArticleByQuery(nextSearchTerm);
+        nextSearchTerm = null;
+      } else {
+        article = await fetchRandomArticle();
+      }
       const page = document.createElement('div');
       page.className = 'page';
       
-      // Store the article URL (if available) on the page element.
       if (article.content_urls && article.content_urls.desktop && article.content_urls.desktop.page) {
         page.dataset.pageUrl = article.content_urls.desktop.page;
       }
@@ -128,14 +253,14 @@
       page.appendChild(titleEl);
       page.appendChild(extractEl);
       
-      // For desktop: double-click to open the Wikipedia page.
+      // Double-click (desktop) to open the article.
       page.addEventListener('dblclick', () => {
         if (page.dataset.pageUrl) {
           window.open(page.dataset.pageUrl, '_blank');
         }
       });
       
-      // For mobile: detect double-tap.
+      // Double-tap (mobile) detection.
       let lastTap = 0;
       page.addEventListener('touchend', (e) => {
         const currentTime = new Date().getTime();
@@ -152,31 +277,32 @@
       return page;
     }
     
-    // Append a new page to the pages container.
     async function appendPage() {
       const page = await createPage();
       pagesContainer.appendChild(page);
     }
     
-    // Preload a given number of pages.
     async function preloadPages(count) {
       for (let i = 0; i < count; i++) {
         await appendPage();
       }
     }
     
-    // Update the transform on the pages container.
-    // Subtract safeAreaTop so the content is raised by the URL bar height.
+    // Update transform; subtract safeAreaTop so content is raised.
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
       pagesContainer.style.transform = `translateY(${translateY - safeAreaTop}px)`;
     }
     
-    // --- Touch Events ---
+    // --- Swipe and Dwell Timer Handling ---
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
       startY = e.touches[0].clientY;
+      if (dwellTimer) {
+        clearTimeout(dwellTimer);
+        dwellTimer = null;
+      }
       setTranslateY(-activeIndex * phoneHeight, false);
     });
     
@@ -192,12 +318,11 @@
       isDragging = false;
       const endY = e.changedTouches[0].clientY;
       const deltaY = endY - startY;
-      // If the movement is negligible, do nothing.
       if (Math.abs(deltaY) < 5) {
         setTranslateY(-activeIndex * phoneHeight, true);
         return;
       }
-      const threshold = phoneHeight * 0.15; // 15% threshold
+      const threshold = phoneHeight * 0.15;
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
       } else if (deltaY > threshold && activeIndex > 0) {
@@ -209,21 +334,23 @@
       }
     });
     
-    // --- Mouse Events (for desktop testing) ---
+    // Mouse events for desktop testing.
     let mouseDown = false;
     let mouseStartY = 0;
     phoneContainer.addEventListener('mousedown', (e) => {
       mouseDown = true;
       mouseStartY = e.clientY;
+      if (dwellTimer) {
+        clearTimeout(dwellTimer);
+        dwellTimer = null;
+      }
       setTranslateY(-activeIndex * phoneHeight, false);
     });
-    
     phoneContainer.addEventListener('mousemove', (e) => {
       if (!mouseDown) return;
       const deltaY = e.clientY - mouseStartY;
       setTranslateY(-activeIndex * phoneHeight + deltaY, false);
     });
-    
     phoneContainer.addEventListener('mouseup', (e) => {
       if (!mouseDown) return;
       mouseDown = false;
@@ -243,7 +370,6 @@
         appendPage();
       }
     });
-    
     phoneContainer.addEventListener('mouseleave', () => {
       if (mouseDown) {
         mouseDown = false;
@@ -251,7 +377,24 @@
       }
     });
     
-    // Initial load: preload a couple of pages.
+    // Start a dwell timer when a page becomes active.
+    pagesContainer.addEventListener('transitionend', () => {
+      if (dwellTimer) clearTimeout(dwellTimer);
+      dwellTimer = setTimeout(async () => {
+        const currentPage = pagesContainer.children[activeIndex];
+        if (!currentPage) return;
+        const titleText = currentPage.querySelector('.title').textContent;
+        const extractText = currentPage.querySelector('.extract').textContent;
+        const pageText = titleText + ". " + extractText;
+        const term = await fetchRelatedSearchTerm(pageText);
+        if (term) {
+          nextSearchTerm = term;
+          console.log("Next search term set to:", nextSearchTerm);
+        }
+      }, 5000);
+    });
+    
+    // Initial load.
     preloadPages(2);
   </script>
 </body>
