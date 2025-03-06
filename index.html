@@ -16,7 +16,7 @@
     body {
       background-color: #000;
       font-family: Arial, sans-serif;
-      color: #ffffff;
+      color: #fff;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -61,12 +61,12 @@
       border: none;
       border-radius: 20px;
       cursor: pointer;
+      background: rgb(244, 255, 95);
     }
     /* Simulated Phone Screen */
     #phone-container {
       position: relative;
       width: 375px;
-      /* Adjust height to account for safe area at the bottom */
       height: calc(100vh - env(safe-area-inset-bottom) - 20px);
       background: #000;
       border: 0;
@@ -91,10 +91,13 @@
       height: 100%;
       padding: 20px;
       display: flex;
-      flex-direction: column;
       justify-content: center;
       align-items: center;
       text-align: center;
+    }
+    /* Inner wrapper to adjust vertical position */
+    .page-content {
+      transform: translateY(10%);
     }
     /* Title and extract styling */
     .title {
@@ -161,7 +164,6 @@
     let nextSearchTerm = null;
     
     // --- GPT Call Function ---
-    // Sends current page text to GPT after 1000ms to get a related search term.
     async function fetchRelatedSearchTerm(text) {
       if (!openAiApiKey) return null;
       const prompt = 
@@ -232,7 +234,7 @@ Return only the search term.`;
       }
     }
     
-    // Create a page element. If a query is provided, use it; otherwise, fetch a random article.
+    // Create a page element. If a query is provided, use it; otherwise random.
     async function createPage(query) {
       let article;
       if (query) {
@@ -247,6 +249,10 @@ Return only the search term.`;
         page.dataset.pageUrl = article.content_urls.desktop.page;
       }
       
+      // Wrap content in an inner container for vertical adjustment.
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'page-content';
+      
       const titleEl = document.createElement('div');
       titleEl.className = 'title';
       titleEl.textContent = article.title || 'No Title';
@@ -255,8 +261,9 @@ Return only the search term.`;
       extractEl.className = 'extract';
       extractEl.textContent = article.extract || 'No extract available.';
       
-      page.appendChild(titleEl);
-      page.appendChild(extractEl);
+      contentWrapper.appendChild(titleEl);
+      contentWrapper.appendChild(extractEl);
+      page.appendChild(contentWrapper);
       
       // Double-click (desktop) opens the article.
       page.addEventListener('dblclick', () => {
@@ -282,7 +289,7 @@ Return only the search term.`;
       return page;
     }
     
-    // Append a new page. If nextSearchTerm is available, use it and clear it; otherwise, fetch random.
+    // Append a new page: if nextSearchTerm exists, use it; otherwise random.
     async function appendPage() {
       let page;
       if (nextSearchTerm) {
@@ -301,14 +308,13 @@ Return only the search term.`;
     }
     
     // --- Transform Update ---
-    // Simply translate by -activeIndex * phoneHeight.
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
       pagesContainer.style.transform = `translateY(${translateY}px)`;
     }
     
     // --- Dwell Timer Function ---
-    // After 1000ms on the current page, call GPT to get a related search term.
+    // After 1000ms on the current page, fetch a related search term.
     function startDwellTimer() {
       if (dwellTimer) clearTimeout(dwellTimer);
       dwellTimer = setTimeout(async () => {
@@ -321,7 +327,7 @@ Return only the search term.`;
         if (term) {
           console.log("GPT returned search term:", term);
           nextSearchTerm = term;
-          // If a placeholder next page exists, replace it with one using the GPT term.
+          // Immediately replace the placeholder next page if it exists.
           if (pagesContainer.children.length > activeIndex + 1) {
             const relatedPage = await createPage(nextSearchTerm);
             pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
@@ -417,13 +423,13 @@ Return only the search term.`;
       }
     });
     
-    // When a page is fully in view, start the dwell timer.
+    // Start the dwell timer when a page is fully in view.
     pagesContainer.addEventListener('transitionend', (e) => {
       if (e.propertyName !== "transform") return;
       startDwellTimer();
     });
     
-    // Initial load: preload two pages and start the dwell timer.
+    // Initial load.
     preloadPages(2).then(() => startDwellTimer());
   </script>
 </body>
