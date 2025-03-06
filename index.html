@@ -58,6 +58,7 @@
       border: none;
       border-radius: 20px;
       cursor: pointer;
+      background-color: rgb(112, 255, 112);
     }
     /* Simulated phone screen */
     #phone-container {
@@ -79,8 +80,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      /* Instead of subtracting safe-area repeatedly, we apply it once via margin */
-      margin-top: 0; /* will be set via JS */
+      /* Removed extra margin-top offset so the content is centered */
       transition: transform 0.3s ease;
       will-change: transform;
     }
@@ -149,13 +149,9 @@
     });
     
     // --- Layout & Variables ---
-    const safeAreaTop = parseFloat(getComputedStyle(document.documentElement)
-                              .getPropertyValue('env(safe-area-inset-top)')) || 20;
-    // Instead of subtracting safeAreaTop in transform, set it as margin-top on #pages.
-    const pagesContainer = document.getElementById('pages');
-    pagesContainer.style.marginTop = -safeAreaTop + "px";
-    
+    // We no longer set a margin-top on #pages so that content remains truly centered.
     const phoneContainer = document.getElementById('phone-container');
+    const pagesContainer = document.getElementById('pages');
     const phoneHeight = phoneContainer.clientHeight;
     let activeIndex = 0;
     let startY = 0;
@@ -164,10 +160,19 @@
     // For dwell timer and related next page.
     let dwellTimer = null;
     let nextSearchTerm = null;
+    // Maintain a chain of past search terms (up to 5).
+    let searchHistory = [];
     
     // --- GPT Call Function ---
     async function fetchRelatedSearchTerm(text) {
       if (!openAiApiKey) return null;
+      // Build a history string from the last up to 5 search terms.
+      const historyString = searchHistory.slice(-5).join(", ");
+      const prompt = 
+`You are an expert researcher.
+You have been provided with a chain of previous search terms: ${historyString}.
+The current Wikipedia article text is: "${text}".
+Provide a single, concise related subject that logically advances the chain and does not repeat any previous term.`;
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
@@ -178,8 +183,8 @@
           body: JSON.stringify({
             model: "chatgpt-4o-latest",
             messages: [
-              { role: "system", content: "You are an expert researcher. Provide a single, concise related subject based on the provided Wikipedia article text." },
-              { role: "user", content: text }
+              { role: "system", content: "You are a highly analytical researcher." },
+              { role: "user", content: prompt }
             ],
             max_tokens: 10,
             temperature: 0.7
@@ -187,7 +192,12 @@
         });
         if (!response.ok) throw new Error("OpenAI API request failed");
         const data = await response.json();
-        return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
+        const term = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
+        // If a term is returned, push it onto our search history.
+        if (term && term.length > 0) {
+          searchHistory.push(term);
+        }
+        return term;
       } catch (error) {
         console.error("Error fetching related term:", error);
         return null;
@@ -255,7 +265,7 @@
       page.appendChild(titleEl);
       page.appendChild(extractEl);
       
-      // Double-click (desktop) to open article.
+      // Double-click (desktop) to open the article.
       page.addEventListener('dblclick', () => {
         if (page.dataset.pageUrl) {
           window.open(page.dataset.pageUrl, '_blank');
@@ -291,6 +301,7 @@
     }
     
     // --- Transform Update ---
+    // Now we simply translate by -activeIndex * phoneHeight (no extra safeArea offset)
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
       pagesContainer.style.transform = `translateY(${translateY}px)`;
@@ -332,7 +343,7 @@
         activeIndex--;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
-      // Always ensure a placeholder next page exists.
+      // Ensure placeholder next page exists.
       if (activeIndex >= pagesContainer.children.length - 2) {
         appendPage();
       }
@@ -388,7 +399,6 @@
     pagesContainer.addEventListener('transitionend', () => {
       if (dwellTimer) clearTimeout(dwellTimer);
       dwellTimer = setTimeout(async () => {
-        // Only proceed if the user is still on the same page.
         const currentPage = pagesContainer.children[activeIndex];
         if (!currentPage) return;
         const titleText = currentPage.querySelector('.title').textContent;
@@ -398,11 +408,9 @@
         if (term) {
           nextSearchTerm = term;
           console.log("Next search term set to:", nextSearchTerm);
-          // If the user is still on the same page and a placeholder next page exists,
-          // replace it with a related article.
+          // Replace the placeholder next page with a related article.
           if (pagesContainer.children.length > activeIndex + 1) {
             const relatedPage = await createPage();
-            // Insert the related page at position activeIndex+1.
             pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
           }
         }
