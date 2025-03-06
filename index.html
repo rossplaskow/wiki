@@ -327,17 +327,18 @@ Return only the search term.`;
         if (term) {
           console.log("GPT returned search term:", term);
           nextSearchTerm = term;
-          // Immediately replace the placeholder next page if it exists.
+          // Immediately replace the placeholder next page, if it exists.
           if (pagesContainer.children.length > activeIndex + 1) {
             const relatedPage = await createPage(nextSearchTerm);
             pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
             nextSearchTerm = null;
           }
         }
-      }, 3000);
+      }, 2000);
     }
     
     // --- Swipe and Dwell Timer Handling ---
+    // Only allow forward scrolling (swipe up) – ignore downward swipes.
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
@@ -366,18 +367,18 @@ Return only the search term.`;
         return;
       }
       const threshold = phoneHeight * 0.15;
+      // Only allow forward scrolling. If deltaY is negative enough, increment activeIndex.
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
-      } else if (deltaY > threshold && activeIndex > 0) {
-        activeIndex--;
       }
+      // Do not allow backward scrolling.
       setTranslateY(-activeIndex * phoneHeight, true);
       if (activeIndex >= pagesContainer.children.length - 2) {
         appendPage();
       }
     });
     
-    // Mouse events for desktop.
+    // Mouse events for desktop – only allow forward scrolling.
     let mouseDown = false;
     let mouseStartY = 0;
     phoneContainer.addEventListener('mousedown', (e) => {
@@ -407,9 +408,8 @@ Return only the search term.`;
       const threshold = phoneHeight * 0.15;
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
-      } else if (deltaY > threshold && activeIndex > 0) {
-        activeIndex--;
       }
+      // Do not allow backward scrolling.
       setTranslateY(-activeIndex * phoneHeight, true);
       if (activeIndex >= pagesContainer.children.length - 2) {
         appendPage();
@@ -423,7 +423,7 @@ Return only the search term.`;
       }
     });
     
-    // Start the dwell timer when a page is fully in view.
+    // When a page is fully in view, start the dwell timer.
     pagesContainer.addEventListener('transitionend', (e) => {
       if (e.propertyName !== "transform") return;
       startDwellTimer();
