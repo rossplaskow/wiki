@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Random Wikipedia Articles with API Key & GPT</title>
+  <title>Random Wikipedia Articles with Related Next Page</title>
   <!-- Use viewport-fit=cover to allow safe area adjustments -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <style>
@@ -45,6 +45,7 @@
       font-size: 1em;
       border-radius: 5px;
       border: none;
+      margin-top: 20px;
       margin-bottom: 20px;
       autocapitalize: none;
       autocomplete: off;
@@ -55,7 +56,7 @@
       padding: 10px 20px;
       font-size: 1em;
       border: none;
-      border-radius: 5px;
+      border-radius: 20px;
       cursor: pointer;
     }
     /* Simulated phone screen */
@@ -78,6 +79,8 @@
       left: 0;
       width: 100%;
       height: 100%;
+      /* Instead of subtracting safe-area repeatedly, we apply it once via margin */
+      margin-top: 0; /* will be set via JS */
       transition: transform 0.3s ease;
       will-change: transform;
     }
@@ -113,7 +116,7 @@
 <body>
   <!-- API Key Overlay -->
   <div id="apikey-overlay">
-    <h2>Please enter your OpenAI API Key</h2>
+    <h2>OpenAI API Key</h2>
     <input type="text" id="apikey-input" placeholder="sk-..." autocapitalize="none" autocomplete="off" spellcheck="false" inputmode="text">
     <button id="apikey-ok">OK</button>
   </div>
@@ -121,25 +124,21 @@
   <!-- Phone Container -->
   <div id="phone-container">
     <div id="pages">
-      <!-- Random article pages will be appended here -->
+      <!-- Article pages will be appended here -->
     </div>
   </div>
 
   <script>
-    // Global variable to hold the user's API key.
+    // --- API Key Setup ---
     let openAiApiKey = localStorage.getItem('openAiApiKey') || "";
-    
     const apikeyOverlay = document.getElementById('apikey-overlay');
     const apikeyInput = document.getElementById('apikey-input');
     const apikeyOk = document.getElementById('apikey-ok');
     
-    // If an API key is already stored, hide the overlay.
     if (openAiApiKey) {
       apikeyOverlay.style.display = 'none';
-      preloadPages(2);
     }
     
-    // When the user clicks OK, store the key and hide the overlay.
     apikeyOk.addEventListener('click', () => {
       openAiApiKey = apikeyInput.value.trim();
       if (openAiApiKey) {
@@ -149,18 +148,20 @@
       }
     });
     
-    // Get safe area top inset (fallback to 20px if not available)
+    // --- Layout & Variables ---
     const safeAreaTop = parseFloat(getComputedStyle(document.documentElement)
                               .getPropertyValue('env(safe-area-inset-top)')) || 20;
+    // Instead of subtracting safeAreaTop in transform, set it as margin-top on #pages.
+    const pagesContainer = document.getElementById('pages');
+    pagesContainer.style.marginTop = -safeAreaTop + "px";
     
     const phoneContainer = document.getElementById('phone-container');
-    const pagesContainer = document.getElementById('pages');
     const phoneHeight = phoneContainer.clientHeight;
     let activeIndex = 0;
     let startY = 0;
     let isDragging = false;
     
-    // Variables for dwell timer and related search term.
+    // For dwell timer and related next page.
     let dwellTimer = null;
     let nextSearchTerm = null;
     
@@ -178,7 +179,7 @@
             model: "chatgpt-4o-latest",
             messages: [
               { role: "system", content: "You are an expert researcher. Provide a single, concise related subject based on the provided Wikipedia article text." },
-              { role: "user", content: "Article text: " + text }
+              { role: "user", content: text }
             ],
             max_tokens: 10,
             temperature: 0.7
@@ -227,6 +228,7 @@
       }
     }
     
+    // Create a page element; if nextSearchTerm is set, use it.
     async function createPage() {
       let article;
       if (nextSearchTerm) {
@@ -253,7 +255,7 @@
       page.appendChild(titleEl);
       page.appendChild(extractEl);
       
-      // Double-click (desktop) to open the article.
+      // Double-click (desktop) to open article.
       page.addEventListener('dblclick', () => {
         if (page.dataset.pageUrl) {
           window.open(page.dataset.pageUrl, '_blank');
@@ -288,13 +290,14 @@
       }
     }
     
-    // Update transform; subtract safeAreaTop so content is raised.
+    // --- Transform Update ---
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
-      pagesContainer.style.transform = `translateY(${translateY - safeAreaTop}px)`;
+      pagesContainer.style.transform = `translateY(${translateY}px)`;
     }
     
     // --- Swipe and Dwell Timer Handling ---
+    // Touch events:
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
@@ -329,12 +332,13 @@
         activeIndex--;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
+      // Always ensure a placeholder next page exists.
       if (activeIndex >= pagesContainer.children.length - 2) {
         appendPage();
       }
     });
     
-    // Mouse events for desktop testing.
+    // Mouse events for desktop:
     let mouseDown = false;
     let mouseStartY = 0;
     phoneContainer.addEventListener('mousedown', (e) => {
@@ -346,11 +350,13 @@
       }
       setTranslateY(-activeIndex * phoneHeight, false);
     });
+    
     phoneContainer.addEventListener('mousemove', (e) => {
       if (!mouseDown) return;
       const deltaY = e.clientY - mouseStartY;
       setTranslateY(-activeIndex * phoneHeight + deltaY, false);
     });
+    
     phoneContainer.addEventListener('mouseup', (e) => {
       if (!mouseDown) return;
       mouseDown = false;
@@ -370,6 +376,7 @@
         appendPage();
       }
     });
+    
     phoneContainer.addEventListener('mouseleave', () => {
       if (mouseDown) {
         mouseDown = false;
@@ -377,10 +384,11 @@
       }
     });
     
-    // Start a dwell timer when a page becomes active.
+    // Start a dwell timer when a page is fully in view.
     pagesContainer.addEventListener('transitionend', () => {
       if (dwellTimer) clearTimeout(dwellTimer);
       dwellTimer = setTimeout(async () => {
+        // Only proceed if the user is still on the same page.
         const currentPage = pagesContainer.children[activeIndex];
         if (!currentPage) return;
         const titleText = currentPage.querySelector('.title').textContent;
@@ -390,8 +398,15 @@
         if (term) {
           nextSearchTerm = term;
           console.log("Next search term set to:", nextSearchTerm);
+          // If the user is still on the same page and a placeholder next page exists,
+          // replace it with a related article.
+          if (pagesContainer.children.length > activeIndex + 1) {
+            const relatedPage = await createPage();
+            // Insert the related page at position activeIndex+1.
+            pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
+          }
         }
-      }, 5000);
+      }, 2000);
     });
     
     // Initial load.
