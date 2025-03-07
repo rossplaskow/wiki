@@ -24,7 +24,7 @@
       overflow: hidden;
       position: relative;
     }
-    /* API Key Overlay – centered */
+    /* API Key Overlay – centered vertically */
     #apikey-overlay {
       position: absolute;
       top: 0;
@@ -95,7 +95,7 @@
       align-items: center;
       text-align: center;
     }
-    /* Inner wrapper to adjust vertical position (shift down by 10%) */
+    /* Inner wrapper to adjust vertical position (push content down by 10%) */
     .page-content {
       transform: translateY(10%);
     }
@@ -145,6 +145,7 @@
       if (openAiApiKey) {
         localStorage.setItem('openAiApiKey', openAiApiKey);
         apikeyOverlay.style.display = 'none';
+        // Preload first two pages using random GPT keyword.
         preloadGPTPages(2);
       }
     });
@@ -156,15 +157,17 @@
     let activeIndex = 0;
     let startY = 0;
     let isDragging = false;
+    // We'll use nextSearchTerm to hold the keyword for the next page.
+    let nextSearchTerm = null;
     
-    /***** GPT & PAGE CHAIN FUNCTIONS *****/
-    // getGPTKeyword: Always calls GPT with a fixed prompt and returns a keyword.
-    async function getGPTKeyword() {
+    /***** GPT FUNCTIONS *****/
+    // Returns a random keyword using a high-temperature prompt.
+    async function getRandomGPTKeyword() {
       if (!openAiApiKey) return null;
       const prompt = 
 `You are a creative and analytical research assistant.
 Return a single, concise search term that a creative technologist would be interested in.
-Randomness up to the max so we get good variety.
+Be random and varied.
 Return only the search term.`;
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -176,7 +179,44 @@ Return only the search term.`;
           body: JSON.stringify({
             model: "chatgpt-4o-latest",
             messages: [
-              { role: "system", content: "You are a highly analytical research assistant." },
+              { role: "system", content: "You are a creative research assistant." },
+              { role: "user", content: prompt }
+            ],
+            max_tokens: 10,
+            temperature: 0.9
+          })
+        });
+        if (!response.ok) throw new Error("OpenAI API request failed");
+        const data = await response.json();
+        const term = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
+        console.log("Random GPT keyword:", term);
+        return term;
+      } catch (error) {
+        console.error("Error fetching random GPT keyword:", error);
+        return null;
+      }
+    }
+    
+    // Returns a related keyword based on the current page's text.
+    async function getRelatedGPTKeyword(pageText) {
+      if (!openAiApiKey) return null;
+      const prompt = 
+`You are a creative and analytical research assistant.
+Given the following Wikipedia article text:
+"${pageText}"
+Return a single, concise search term that continues or dives deeper into the subject.
+Return only the search term.`;
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + openAiApiKey
+          },
+          body: JSON.stringify({
+            model: "chatgpt-4o-latest",
+            messages: [
+              { role: "system", content: "You are a creative research assistant." },
               { role: "user", content: prompt }
             ],
             max_tokens: 10,
@@ -186,26 +226,15 @@ Return only the search term.`;
         if (!response.ok) throw new Error("OpenAI API request failed");
         const data = await response.json();
         const term = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
-        console.log("GPT returned search term:", term);
+        console.log("Related GPT keyword:", term);
         return term;
       } catch (error) {
-        console.error("Error fetching GPT keyword:", error);
+        console.error("Error fetching related GPT keyword:", error);
         return null;
       }
     }
     
-    // fetchArticleByQuery and fetchRandomArticle as before:
-    async function fetchRandomArticle() {
-      try {
-        const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary');
-        if (!response.ok) throw new Error('Network response was not ok');
-        return await response.json();
-      } catch (error) {
-        console.error('Error fetching article:', error);
-        return { title: 'Error', extract: 'Could not load article.' };
-      }
-    }
-    
+    /***** ARTICLE FETCHING FUNCTIONS *****/
     async function fetchArticleByQuery(query) {
       try {
         const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=50&format=json&origin=*`;
@@ -228,7 +257,19 @@ Return only the search term.`;
       }
     }
     
-    // createPage: Always use the provided GPT keyword (query) to fetch an article.
+    async function fetchRandomArticle() {
+      try {
+        const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary');
+        if (!response.ok) throw new Error('Network response was not ok');
+        return await response.json();
+      } catch (error) {
+        console.error('Error fetching article:', error);
+        return { title: 'Error', extract: 'Could not load article.' };
+      }
+    }
+    
+    /***** PAGE CREATION *****/
+    // createPage always uses a GPT keyword (query) to generate an article.
     async function createPage(query) {
       let article = await fetchArticleByQuery(query);
       const page = document.createElement('div');
@@ -238,7 +279,7 @@ Return only the search term.`;
         page.dataset.pageUrl = article.content_urls.desktop.page;
       }
       
-      // Wrap content in .page-content for vertical adjustment.
+      // Inner wrapper for vertical adjustment.
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'page-content';
       
@@ -254,9 +295,11 @@ Return only the search term.`;
       contentWrapper.appendChild(extractEl);
       page.appendChild(contentWrapper);
       
-      // Double-click (desktop) opens the article.
+      // Double-click (desktop) to open article.
       page.addEventListener('dblclick', () => {
-        if (page.dataset.pageUrl) window.open(page.dataset.pageUrl, '_blank');
+        if (page.dataset.pageUrl) {
+          window.open(page.dataset.pageUrl, '_blank');
+        }
       });
       
       // Double-tap (mobile) detection.
@@ -265,7 +308,9 @@ Return only the search term.`;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         if (tapLength < 300 && tapLength > 0) {
-          if (page.dataset.pageUrl) window.open(page.dataset.pageUrl, '_blank');
+          if (page.dataset.pageUrl) {
+            window.open(page.dataset.pageUrl, '_blank');
+          }
           e.preventDefault();
         }
         lastTap = currentTime;
@@ -274,33 +319,45 @@ Return only the search term.`;
       return page;
     }
     
-    async function appendPageUsingGPT() {
-      let keyword = await getGPTKeyword();
+    // appendPageUsingRandom: Calls GPT to get a random keyword and creates a page using it.
+    async function appendPageUsingRandom() {
+      let keyword = await getRandomGPTKeyword();
       if (!keyword) {
-        // If GPT fails, pick a random fallback keyword.
-        const fallbacks = ["technology", "AI", "economics", "quantum computing", "science", "bitcoin", "aviation"];
+        const fallbacks = [
+          "technology", 
+          "AI", 
+          "economics", 
+          "quantum computing", 
+          "science", 
+          "mathematics", 
+          "biology", 
+          "probability", 
+          "bitcoin",
+          "artificial intelligence",
+          "machine learning",
+          "data science"
+        ];
         keyword = fallbacks[Math.floor(Math.random() * fallbacks.length)];
       }
       const page = await createPage(keyword);
       pagesContainer.appendChild(page);
     }
-
     
-    // Preload N pages using GPT.
+    // preloadGPTPages: Preloads N pages using the random prompt.
     async function preloadGPTPages(count) {
       for (let i = 0; i < count; i++) {
-        await appendPageUsingGPT();
+        await appendPageUsingRandom();
       }
     }
     
-    // --- Transform Update ---
+    /***** TRANSFORM UPDATE *****/
     function setTranslateY(translateY, withTransition = false) {
       pagesContainer.style.transition = withTransition ? 'transform 0.3s ease' : 'none';
       pagesContainer.style.transform = `translateY(${translateY}px)`;
     }
     
-    // --- Swipe Handling (Forward Only) ---
-    // Only allow upward swipes (no backward scrolling).
+    /***** SWIPE HANDLING (FORWARD ONLY) *****/
+    // Only allow upward swipes.
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
@@ -325,18 +382,17 @@ Return only the search term.`;
         return;
       }
       const threshold = phoneHeight * 0.15;
-      // Only allow upward swipe (deltaY negative) to go forward.
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
-      // Always preload the next page using GPT.
+      // Immediately preload a new random page.
       if (activeIndex >= pagesContainer.children.length - 1) {
-        appendPageUsingGPT();
+        appendPageUsingRandom();
       }
     });
     
-    // Mouse events for desktop – only allow forward scrolling.
+    // Mouse events for desktop – forward only.
     let mouseDown = false;
     let mouseStartY = 0;
     phoneContainer.addEventListener('mousedown', (e) => {
@@ -365,7 +421,7 @@ Return only the search term.`;
       }
       setTranslateY(-activeIndex * phoneHeight, true);
       if (activeIndex >= pagesContainer.children.length - 1) {
-        appendPageUsingGPT();
+        appendPageUsingRandom();
       }
     });
     
@@ -376,16 +432,68 @@ Return only the search term.`;
       }
     });
     
-    // --- Preload New Page on Scroll ---
-    // When the transition ends (i.e. a page is fully in view), immediately preload a new page.
+    /***** DWELL TIMER *****/
+    // When a page is fully in view, immediately trigger a GPT call for the next page.
     pagesContainer.addEventListener('transitionend', (e) => {
       if (e.propertyName !== "transform") return;
-      if (activeIndex >= pagesContainer.children.length - 1) {
-        appendPageUsingGPT();
-      }
+      // Use a 5-second threshold: if user lingers, replace next page with a related page.
+      setTimeout(async () => {
+        // Check that user hasn't swiped (activeIndex remains the same)
+        const currentPage = pagesContainer.children[activeIndex];
+        if (!currentPage) return;
+        const titleText = currentPage.querySelector('.title').textContent;
+        const extractText = currentPage.querySelector('.extract').textContent;
+        const pageText = titleText + ". " + extractText;
+        const relatedKeyword = await getRelatedGPTKeyword(pageText);
+        if (relatedKeyword) {
+          console.log("GPT returned related search term:", relatedKeyword);
+          // Replace the preloaded next page with one created from the related keyword.
+          if (pagesContainer.children.length > activeIndex + 1) {
+            const relatedPage = await createPage(relatedKeyword);
+            pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
+          }
+        }
+      }, 5000);
     });
     
-    // Initial load: Call GPT twice to create the first two pages.
+    // getRelatedGPTKeyword: Returns a keyword based on current page text.
+    async function getRelatedGPTKeyword(text) {
+      if (!openAiApiKey) return null;
+      const prompt = 
+`You are a creative and analytical research assistant.
+Given the following Wikipedia article text:
+"${text}"
+Return a single, concise search term that continues or deepens the subject.
+Return only the search term.`;
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + openAiApiKey
+          },
+          body: JSON.stringify({
+            model: "chatgpt-4o-latest",
+            messages: [
+              { role: "system", content: "You are a highly analytical research assistant." },
+              { role: "user", content: prompt }
+            ],
+            max_tokens: 10,
+            temperature: 0.7
+          })
+        });
+        if (!response.ok) throw new Error("OpenAI API request failed");
+        const data = await response.json();
+        const term = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content.trim();
+        return term;
+      } catch (error) {
+        console.error("Error fetching related GPT keyword:", error);
+        return null;
+      }
+    }
+    
+    /***** INITIAL LOAD *****/
+    // Preload the first two pages using GPT random keywords.
     preloadGPTPages(2);
   </script>
 </body>
