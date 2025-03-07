@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Random Wikipedia Articles with GPT Next Page</title>
+  <title>Wikipedia Articles for Creative Technologists</title>
   <!-- Use viewport-fit=cover for safe area adjustments -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <style>
@@ -24,7 +24,7 @@
       overflow: hidden;
       position: relative;
     }
-    /* API Key Overlay – centered vertically */
+    /* API Key Overlay – centered */
     #apikey-overlay {
       position: absolute;
       top: 0;
@@ -95,7 +95,7 @@
       align-items: center;
       text-align: center;
     }
-    /* Inner wrapper to adjust vertical position */
+    /* Inner wrapper to adjust vertical position (shift down by 10%) */
     .page-content {
       transform: translateY(10%);
     }
@@ -127,31 +127,29 @@
   <!-- Phone Container -->
   <div id="phone-container">
     <div id="pages">
-      <!-- Article pages will be appended here -->
+      <!-- Pages will be appended here -->
     </div>
   </div>
 
   <script>
-    // --- API Key Setup ---
+    /***** API KEY SETUP *****/
     let openAiApiKey = localStorage.getItem('openAiApiKey') || "";
     const apikeyOverlay = document.getElementById('apikey-overlay');
     const apikeyInput = document.getElementById('apikey-input');
     const apikeyOk = document.getElementById('apikey-ok');
-    
     if (openAiApiKey) {
       apikeyOverlay.style.display = 'none';
     }
-    
     apikeyOk.addEventListener('click', () => {
       openAiApiKey = apikeyInput.value.trim();
       if (openAiApiKey) {
         localStorage.setItem('openAiApiKey', openAiApiKey);
         apikeyOverlay.style.display = 'none';
-        preloadPages(2).then(() => startDwellTimer());
+        preloadGPTPages(2);
       }
     });
     
-    // --- Layout & Variables ---
+    /***** LAYOUT & VARIABLES *****/
     const phoneContainer = document.getElementById('phone-container');
     const pagesContainer = document.getElementById('pages');
     const phoneHeight = phoneContainer.clientHeight;
@@ -159,20 +157,14 @@
     let startY = 0;
     let isDragging = false;
     
-    // For dwell timer and next page query.
-    let dwellTimer = null;
-    let nextSearchTerm = null;
-    
-    // --- GPT Call Function ---
-    async function fetchRelatedSearchTerm(text) {
+    /***** GPT & PAGE CHAIN FUNCTIONS *****/
+    // getGPTKeyword: Always calls GPT with a fixed prompt and returns a keyword.
+    async function getGPTKeyword() {
       if (!openAiApiKey) return null;
       const prompt = 
 `You are a creative and analytical research assistant.
-Given the following Wikipedia article text:
-"${text}"
-Return a single, concise search term that suggests a logical next subject related to the article.
-If the article provided to you is not something you think a creative technologist would be interested in,  then return a subject that you believe a creative technologist would be interested in.
-Subjects include but should not be limited to:  AI, technology, economics, quantum computing, science, bitcoin, aviation.  do not return these specific subjects ofcourse.  return a deeper subject within.
+Return a single, concise search term that a creative technologist would be interested in.
+Randomness up to the max so we get good variety.
 Return only the search term.`;
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -197,12 +189,12 @@ Return only the search term.`;
         console.log("GPT returned search term:", term);
         return term;
       } catch (error) {
-        console.error("Error fetching related term:", error);
+        console.error("Error fetching GPT keyword:", error);
         return null;
       }
     }
     
-    // --- Article Fetching Functions ---
+    // fetchArticleByQuery and fetchRandomArticle as before:
     async function fetchRandomArticle() {
       try {
         const response = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary');
@@ -236,14 +228,9 @@ Return only the search term.`;
       }
     }
     
-    // Create a page element. If a query is provided, use it; otherwise random.
+    // createPage: Always use the provided GPT keyword (query) to fetch an article.
     async function createPage(query) {
-      let article;
-      if (query) {
-        article = await fetchArticleByQuery(query);
-      } else {
-        article = await fetchRandomArticle();
-      }
+      let article = await fetchArticleByQuery(query);
       const page = document.createElement('div');
       page.className = 'page';
       
@@ -251,7 +238,7 @@ Return only the search term.`;
         page.dataset.pageUrl = article.content_urls.desktop.page;
       }
       
-      // Wrap content in an inner container for vertical adjustment.
+      // Wrap content in .page-content for vertical adjustment.
       const contentWrapper = document.createElement('div');
       contentWrapper.className = 'page-content';
       
@@ -269,9 +256,7 @@ Return only the search term.`;
       
       // Double-click (desktop) opens the article.
       page.addEventListener('dblclick', () => {
-        if (page.dataset.pageUrl) {
-          window.open(page.dataset.pageUrl, '_blank');
-        }
+        if (page.dataset.pageUrl) window.open(page.dataset.pageUrl, '_blank');
       });
       
       // Double-tap (mobile) detection.
@@ -280,9 +265,7 @@ Return only the search term.`;
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         if (tapLength < 300 && tapLength > 0) {
-          if (page.dataset.pageUrl) {
-            window.open(page.dataset.pageUrl, '_blank');
-          }
+          if (page.dataset.pageUrl) window.open(page.dataset.pageUrl, '_blank');
           e.preventDefault();
         }
         lastTap = currentTime;
@@ -291,21 +274,22 @@ Return only the search term.`;
       return page;
     }
     
-    // Append a new page: if nextSearchTerm exists, use it; otherwise random.
-    async function appendPage() {
-      let page;
-      if (nextSearchTerm) {
-        page = await createPage(nextSearchTerm);
-        nextSearchTerm = null;
-      } else {
-        page = await createPage();
+    async function appendPageUsingGPT() {
+      let keyword = await getGPTKeyword();
+      if (!keyword) {
+        // If GPT fails, pick a random fallback keyword.
+        const fallbacks = ["technology", "AI", "economics", "quantum computing", "science", "bitcoin", "aviation"];
+        keyword = fallbacks[Math.floor(Math.random() * fallbacks.length)];
       }
+      const page = await createPage(keyword);
       pagesContainer.appendChild(page);
     }
+
     
-    async function preloadPages(count) {
+    // Preload N pages using GPT.
+    async function preloadGPTPages(count) {
       for (let i = 0; i < count; i++) {
-        await appendPage();
+        await appendPageUsingGPT();
       }
     }
     
@@ -315,40 +299,12 @@ Return only the search term.`;
       pagesContainer.style.transform = `translateY(${translateY}px)`;
     }
     
-    // --- Dwell Timer Function ---
-    // After 1000ms on the current page, fetch a related search term.
-    function startDwellTimer() {
-      if (dwellTimer) clearTimeout(dwellTimer);
-      dwellTimer = setTimeout(async () => {
-        const currentPage = pagesContainer.children[activeIndex];
-        if (!currentPage) return;
-        const titleText = currentPage.querySelector('.title').textContent;
-        const extractText = currentPage.querySelector('.extract').textContent;
-        const pageText = titleText + ". " + extractText;
-        const term = await fetchRelatedSearchTerm(pageText);
-        if (term) {
-          console.log("GPT returned search term:", term);
-          nextSearchTerm = term;
-          // Immediately replace the placeholder next page, if it exists.
-          if (pagesContainer.children.length > activeIndex + 1) {
-            const relatedPage = await createPage(nextSearchTerm);
-            pagesContainer.replaceChild(relatedPage, pagesContainer.children[activeIndex + 1]);
-            nextSearchTerm = null;
-          }
-        }
-      }, 2000);
-    }
-    
-    // --- Swipe and Dwell Timer Handling ---
-    // Only allow forward scrolling (swipe up) – ignore downward swipes.
+    // --- Swipe Handling (Forward Only) ---
+    // Only allow upward swipes (no backward scrolling).
     phoneContainer.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       isDragging = true;
       startY = e.touches[0].clientY;
-      if (dwellTimer) {
-        clearTimeout(dwellTimer);
-        dwellTimer = null;
-      }
       setTranslateY(-activeIndex * phoneHeight, false);
     });
     
@@ -369,14 +325,14 @@ Return only the search term.`;
         return;
       }
       const threshold = phoneHeight * 0.15;
-      // Only allow forward scrolling. If deltaY is negative enough, increment activeIndex.
+      // Only allow upward swipe (deltaY negative) to go forward.
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
       }
-      // Do not allow backward scrolling.
       setTranslateY(-activeIndex * phoneHeight, true);
-      if (activeIndex >= pagesContainer.children.length - 2) {
-        appendPage();
+      // Always preload the next page using GPT.
+      if (activeIndex >= pagesContainer.children.length - 1) {
+        appendPageUsingGPT();
       }
     });
     
@@ -386,10 +342,6 @@ Return only the search term.`;
     phoneContainer.addEventListener('mousedown', (e) => {
       mouseDown = true;
       mouseStartY = e.clientY;
-      if (dwellTimer) {
-        clearTimeout(dwellTimer);
-        dwellTimer = null;
-      }
       setTranslateY(-activeIndex * phoneHeight, false);
     });
     
@@ -411,10 +363,9 @@ Return only the search term.`;
       if (deltaY < -threshold && activeIndex < pagesContainer.children.length - 1) {
         activeIndex++;
       }
-      // Do not allow backward scrolling.
       setTranslateY(-activeIndex * phoneHeight, true);
-      if (activeIndex >= pagesContainer.children.length - 2) {
-        appendPage();
+      if (activeIndex >= pagesContainer.children.length - 1) {
+        appendPageUsingGPT();
       }
     });
     
@@ -425,14 +376,17 @@ Return only the search term.`;
       }
     });
     
-    // When a page is fully in view, start the dwell timer.
+    // --- Preload New Page on Scroll ---
+    // When the transition ends (i.e. a page is fully in view), immediately preload a new page.
     pagesContainer.addEventListener('transitionend', (e) => {
       if (e.propertyName !== "transform") return;
-      startDwellTimer();
+      if (activeIndex >= pagesContainer.children.length - 1) {
+        appendPageUsingGPT();
+      }
     });
     
-    // Initial load.
-    preloadPages(2).then(() => startDwellTimer());
+    // Initial load: Call GPT twice to create the first two pages.
+    preloadGPTPages(2);
   </script>
 </body>
 </html>
