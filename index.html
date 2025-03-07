@@ -171,6 +171,8 @@
 Given the following Wikipedia article text:
 "${text}"
 Return a single, concise search term that suggests a logical next subject related to the article.
+If the article provided to you is not something you think a creative technologist would be interested in,  then return a subject that you believe a creative technologist would be interested in.
+Subjects include but should not be limited to:  AI, technology, economics, quantum computing, science, bitcoin, aviation.  do not return these specific subjects ofcourse.  return a deeper subject within.
 Return only the search term.`;
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
