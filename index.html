@@ -118,7 +118,7 @@ The search term is: "${term}"`;
           // Assume the first line is the title.
           const title = content.split("\n")[0].trim();
           // Keep our chain limited to the title (not the full text).
-          if (searchTerms.length >= 10) {
+          if (searchTerms.length >= 20) {
             searchTerms.shift();
           }
           searchTerms.push(title);
