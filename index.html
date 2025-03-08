@@ -134,7 +134,8 @@ The search term is: "${term}"`;
         const prompt = `You are a creative and analytical research assistant.
 Based on the following chain of subjects: ${searchTerms.join(", ")},
 Return a single, concise search term that logically moves deeper into the subject.
-The aim of this process is to simulate an increasingly granular research rabbit-hole'. 
+Not slightly deeper.  One full step deeper.  past the previous search term.  your new chosen topic should not be a side-step.
+The aim of this process is to simulate an increasingly deep research rabbit-hole'. 
 Return only the search term.`;
         try {
           const response = await fetch("https://api.openai.com/v1/chat/completions", {
